@@ -1,11 +1,10 @@
 services:
-  - type: worker
+  - type: web
     name: jallal-bot
     env: python
     buildCommand: pip install -r requirements.txt
     startCommand: python bot_render.py
-    autoDeploy: true
-    healthCheckPath: /
+    healthCheckPath: /wh
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.10
