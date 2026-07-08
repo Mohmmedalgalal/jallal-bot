@@ -1,4 +1,4 @@
-import logging, json, os, asyncio
+import logging, json, os, asyncio, threading
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatPermissions
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes, ChatMemberHandler
 from telegram.error import TelegramError
@@ -10,6 +10,7 @@ ARCHIVE_INVITE_LINK = "https://t.me/g9cPgbMOOFL0zNmNk"
 OWNER_ID = 7606399570
 DATA_FILE = "bot_data.json"
 PORT = int(os.environ.get("PORT", 8080))
+RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL", "")
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -31,44 +32,41 @@ class HealthHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"Bot is alive!")
     def log_message(self, *args): pass
 
-def run_http():
-    HTTPServer(("0.0.0.0", PORT), HealthHandler).serve_forever()
+def run_health():
+    HTTPServer(("0.0.0.0", PORT + 1), HealthHandler).serve_forever()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat and update.effective_chat.type != "private": return
     user = update.effective_user
-    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("📦 الانضمام للأرشيف", url=ARCHIVE_INVITE_LINK)], [InlineKeyboardButton("✅ تفعيل الحساب", callback_data="verify")]])
-    await update.message.reply_text(f"مرحباً بك {user.first_name} في بوت الجلال 👋\n\nللتفعيل:\n1️⃣ اضغط على زر الانضمام للأرشيف\n2️⃣ ثم اضغط على زر تفعيل الحساب", reply_markup=keyboard)
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("\U0001f4e6 الانضمام للأرشيف", url=ARCHIVE_INVITE_LINK)], [InlineKeyboardButton("\u2705 تفعيل الحساب", callback_data="verify")]])
+    await update.message.reply_text(f"مرحباً بك {user.first_name} في بوت الجلال \U0001f44b\n\nللتفعيل:\n1\ufe0f\u20e3 اضغط على زر الانضمام للأرشيف\n2\ufe0f\u20e3 ثم اضغط على زر تفعيل الحساب", reply_markup=kb)
 
 async def verify_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query; await query.answer()
-    uid = query.from_user.id; name = query.from_user.first_name
-    main_id = data.get("main_group_id"); archive_id = data.get("archive_group_id")
-    logger.info(f"Verify by {uid}")
-    if not main_id: await safe_edit(query, "⚠️ البوت لم يربط بعد بالقروب الرئيسي."); return
-    if not archive_id: await safe_edit(query, "⚠️ البوت لم يربط بعد بقروب الأرشيف."); return
+    q = update.callback_query; await q.answer()
+    uid = q.from_user.id; name = q.from_user.first_name
+    mid = data.get("main_group_id"); aid = data.get("archive_group_id")
+    if not mid: await safe_edit(q, "⚠️ البوت لم يربط بعد بالقروب الرئيسي."); return
+    if not aid: await safe_edit(q, "⚠️ البوت لم يربط بعد بقروب الأرشيف."); return
     try:
-        m = await context.bot.get_chat_member(chat_id=archive_id, user_id=uid)
-        if m.status in ("member", "creator", "administrator"):
-            perms = ChatPermissions(can_send_messages=True, can_send_audios=True, can_send_documents=True, can_send_photos=True, can_send_videos=True, can_send_video_notes=True, can_send_voice_notes=True, can_send_polls=True, can_send_other_messages=True, can_add_web_page_previews=True, can_change_info=False, can_invite_users=False, can_pin_messages=False)
-            try:
-                await context.bot.restrict_chat_member(chat_id=main_id, user_id=uid, permissions=perms)
-            except TelegramError:
-                await safe_edit(query, "⚠️ لم يتم العثور عليك في القروب الرئيسي."); return
-            await safe_edit(query, f"✅ {name} تم تفعيل حسابك!")
-            try: await context.bot.send_message(uid, "✅ تم تفعيل حسابك! يمكنك الآن الكتابة.")
+        m = await context.bot.get_chat_member(chat_id=aid, user_id=uid)
+        if m.status in ("member","creator","administrator"):
+            p = ChatPermissions(can_send_messages=True, can_send_audios=True, can_send_documents=True, can_send_photos=True, can_send_videos=True, can_send_video_notes=True, can_send_voice_notes=True, can_send_polls=True, can_send_other_messages=True, can_add_web_page_previews=True, can_change_info=False, can_invite_users=False, can_pin_messages=False)
+            try: await context.bot.restrict_chat_member(chat_id=mid, user_id=uid, permissions=p)
+            except TelegramError: await safe_edit(q, "⚠️ لم يتم العثور عليك في القروب الرئيسي."); return
+            await safe_edit(q, f"\u2705 {name} تم تفعيل حسابك!")
+            try: await context.bot.send_message(uid, "\u2705 تم تفعيل حسابك! يمكنك الآن الكتابة في القروب.")
             except: pass
-            asyncio.create_task(delayed_delete(query.message, 20))
+            asyncio.create_task(delayed_delete(q.message, 20))
         else:
-            kb = InlineKeyboardMarkup([[InlineKeyboardButton("📦 انضم للارشيف", url=ARCHIVE_INVITE_LINK)], [InlineKeyboardButton("✅ تفعيل الحساب", callback_data="verify")]])
-            await safe_edit(query, "❌ لم تنضم إلى قروب الأرشيف بعد.\nالرجاء الانضمام أولاً، ثم اضغط على تفعيل الحساب.", reply_markup=kb)
+            kb = InlineKeyboardMarkup([[InlineKeyboardButton("\U0001f4e6 انضم للارشيف", url=ARCHIVE_INVITE_LINK)], [InlineKeyboardButton("\u2705 تفعيل الحساب", callback_data="verify")]])
+            await safe_edit(q, "❌ لم تنضم إلى قروب الأرشيف بعد.\nالرجاء الانضمام أولاً، ثم اضغط على تفعيل الحساب.", reply_markup=kb)
     except TelegramError as e:
-        logger.error(f"Verify error {uid}: {e}"); await safe_edit(query, "❌ حدث خطأ في التحقق.")
+        logger.error(f"Verify error {uid}: {e}"); await safe_edit(q, "❌ حدث خطأ في التحقق.")
 
-async def safe_edit(query, text, reply_markup=None):
-    try: await query.edit_message_text(text=text, reply_markup=reply_markup)
+async def safe_edit(q, text, reply_markup=None):
+    try: await q.edit_message_text(text=text, reply_markup=reply_markup)
     except TelegramError:
-        try: await query.message.reply_text(text=text, reply_markup=reply_markup)
+        try: await q.message.reply_text(text=text, reply_markup=reply_markup)
         except: pass
 
 async def delayed_delete(msg, delay):
@@ -79,20 +77,19 @@ async def delayed_delete(msg, delay):
 async def handle_new_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.new_chat_members: return
     chat = update.effective_chat; cu = chat.username.lower() if chat.username else None
-    main_id = data.get("main_group_id")
-    if cu == MAIN_GROUP_USERNAME.lower() and (not main_id or main_id != chat.id):
-        data["main_group_id"] = chat.id; save_data(); main_id = chat.id
-        logger.info(f"Main group set: {chat.id}")
+    mid = data.get("main_group_id")
+    if cu == MAIN_GROUP_USERNAME.lower() and (not mid or mid != chat.id):
+        data["main_group_id"] = chat.id; save_data(); mid = chat.id
         try: await context.bot.send_message(OWNER_ID, f"✅ تم ربط القروب الرئيسي:\n{chat.title}")
         except: pass
-    if chat.id != main_id: return
+    if chat.id != mid: return
     for member in update.message.new_chat_members:
         if member.id == context.bot.id: continue
         try:
             mp = ChatPermissions(can_send_messages=False, can_send_audios=False, can_send_documents=False, can_send_photos=False, can_send_videos=False, can_send_video_notes=False, can_send_voice_notes=False, can_send_polls=False, can_send_other_messages=False, can_add_web_page_previews=False, can_change_info=False, can_invite_users=False, can_pin_messages=False)
             await chat.restrict_member(user_id=member.id, permissions=mp)
         except TelegramError as e: logger.error(f"Mute fail {member.id}: {e}"); continue
-        kb = InlineKeyboardMarkup([[InlineKeyboardButton("📦 الانضمام للأرشيف", url=ARCHIVE_INVITE_LINK)], [InlineKeyboardButton("✅ تفعيل الحساب", callback_data="verify")]])
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("\U0001f4e6 الانضمام للأرشيف", url=ARCHIVE_INVITE_LINK)], [InlineKeyboardButton("\u2705 تفعيل الحساب", callback_data="verify")]])
         try:
             await chat.send_message(f"أهلا بك {member.mention_html()}، أنت مكتوم حالياً.\nاضغط على زر الانضمام للأرشيف ثم تفعيل الحساب.", reply_markup=kb, parse_mode="HTML")
         except TelegramError as e: logger.error(f"Welcome fail {member.id}: {e}")
@@ -116,7 +113,7 @@ async def handle_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TY
 async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID: return
     m = data.get("main_group_id"); a = data.get("archive_group_id")
-    await update.message.reply_text(f"📊 الحالة\nالقروب الرئيسي: {m or '❌'}\nقروب الأرشيف: {a or '❌'}")
+    await update.message.reply_text(f"حالة البوت\nالقروب الرئيسي: {m or '❌'}\nقروب الأرشيف: {a or '❌'}")
 
 async def setmain_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID: return
@@ -140,9 +137,8 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     load_data()
-    import threading
-    threading.Thread(target=run_http, daemon=True).start()
-    app = Application.builder().token(TOKEN).build()
+    t = threading.Thread(target=run_health, daemon=True); t.start()
+    app = Application.builder().token(TOKEN).updater(None).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("status", status_cmd))
     app.add_handler(CommandHandler("setmain", setmain_cmd))
@@ -152,8 +148,13 @@ def main():
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_members))
     app.add_handler(ChatMemberHandler(handle_my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
     app.add_error_handler(error_handler)
-    logger.info("Bot started...")
-    app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+    if RENDER_URL:
+        wh_url = f"{RENDER_URL}/wh"
+        logger.info(f"Starting webhook on port {PORT}, url: {wh_url}")
+        app.run_webhook(listen="0.0.0.0", port=PORT, url_path="wh", webhook_url=wh_url, close_loop=False)
+    else:
+        logger.info("Polling mode (no RENDER_EXTERNAL_URL)")
+        app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 if __name__ == "__main__":
     main()
